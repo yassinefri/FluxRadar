@@ -2,21 +2,21 @@ import osmnx as ox
 
 def download_and_save_graph(place_name: str, filepath: str):
     """
-    Télécharge le graphe routier d'un lieu et le sauvegarde au format .graphml
+    Download road graph of a place and save it as .graphml format
 
     Args:
-        place_name (str): Nom du lieu à télécharger (ville, quartier, etc.)
-        filepath (str): Chemin du fichier où sauvegarder le graphe
+        place_name (str): Name of the place to download (city, district, etc.)
+        filepath (str): File path where to save the graph
     """
-    print(f"Téléchargement du graphe pour : {place_name}")
+    print(f"Downloading graph for: {place_name}")
     G = ox.graph_from_place(place_name, network_type="drive")
     
-    print("Affichage du graphe...")
+    print("Displaying graph...")
     ox.plot_graph(G)
     
-    print(f"Sauvegarde du graphe vers : {filepath}")
+    print(f"Saving graph to: {filepath}")
     ox.save_graphml(G, filepath=filepath)
-    print("✅ Graphe téléchargé et sauvegardé avec succès.")
+    print("Graph downloaded and saved successfully.")
 
 # Exemple d’utilisation
 if __name__ == "__main__":

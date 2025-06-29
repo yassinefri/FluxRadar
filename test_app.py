@@ -1,28 +1,28 @@
 """
-Test simple pour vérifier le fonctionnement de l'application
+Simple test to verify application functionality
 """
 import pandas as pd
 
-# Test de chargement des données
-print("🧪 Test de chargement des données...")
+# Data loading test
+print("Testing data loading...")
 df = pd.read_csv("data/processed/monoprix_nodes.csv")
-print(f"✅ {len(df)} magasins chargés")
-print(f"Colonnes: {df.columns.tolist()}")
+print(f"{len(df)} stores loaded")
+print(f"Columns: {df.columns.tolist()}")
 
-# Renommer les colonnes
+# Rename columns
 if 'X' in df.columns and 'Y' in df.columns:
     df = df.rename(columns={'X': 'longitude', 'Y': 'latitude'})
-    print("✅ Colonnes renommées")
+    print("Columns renamed")
 
-# Test de filtrage
+# Filtering test
 selected_stores = ["Monoprix - 118/130 Avenue Jean Jaurès", "Monoprix - 49 Rue d'Auteuil"]
 selected_stores_names = [store.split(" - ")[0] for store in selected_stores]
 filtered_stores = df[df['name'].isin(selected_stores_names)]
 
-print(f"🎯 Magasins sélectionnés: {len(selected_stores_names)}")
-print(f"🎯 Magasins filtrés: {len(filtered_stores)}")
-print("🎯 Magasins filtrés:")
+print(f"Selected stores: {len(selected_stores_names)}")
+print(f"Filtered stores: {len(filtered_stores)}")
+print("Filtered stores:")
 for _, store in filtered_stores.iterrows():
-    print(f"  - {store['name']} à {store['address']}")
+    print(f"  - {store['name']} at {store['address']}")
 
-print("\n✅ Tous les tests passent ! L'application devrait fonctionner correctement.")
+print("\nAll tests pass! The application should work correctly.")

@@ -10,29 +10,29 @@ import os
 
 def load_graph(filepath: str):
     """
-    Charge un graphe OSMNX sauvegardé en .graphml.
+    Load a saved OSMnx graph from .graphml file.
 
     Args:
-        filepath (str): Chemin du fichier .graphml
+        filepath (str): Path to the .graphml file
 
     Returns:
-        networkx.MultiDiGraph: Le graphe routier chargé
+        networkx.MultiDiGraph: The loaded road graph
     """
     if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Fichier pas trouvé : {filepath}")
+        raise FileNotFoundError(f"File not found: {filepath}")
 
     if ox is not None:
-        # Utilisation d'OSMnx si disponible
+        # Use OSMnx if available
         graph = ox.load_graphml(filepath)
     else:
-        # Fallback avec NetworkX
+        # Fallback with NetworkX
         import networkx as nx
         graph = nx.read_graphml(filepath)
     
-    print("Graphe chargé avec succès.")
+    print("Graph loaded successfully.")
     return graph
 
 
-# Exemple d’utilisation :
+# Usage example:
 if __name__ == "__main__":
     G = load_graph("data/processed/graph_paris.graphml")
