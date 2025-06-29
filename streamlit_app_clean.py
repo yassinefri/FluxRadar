@@ -23,7 +23,7 @@ def load_stores():
         if 'X' in df.columns and 'Y' in df.columns:
             df = df.rename(columns={'X': 'longitude', 'Y': 'latitude'})
         
-        # Check that columns exist
+        # Check that columns exist now
         if 'latitude' not in df.columns or 'longitude' not in df.columns:
             st.error(f"Missing columns. Available columns: {df.columns.tolist()}")
             return pd.DataFrame()
@@ -129,7 +129,7 @@ def create_paris_map(stores_df, selected_coords=None, selected_stores=None, opti
                     ),
                     text='Destination',
                     hovertemplate='<b>Destination</b><extra></extra>',
-                    name='Finish'
+                    name='Destination'
                 ))
     
     fig.update_layout(
@@ -242,72 +242,72 @@ def calculate_optimal_route(G, start_coords, stores_df, selected_stores, avg_spe
         return None
 
 def main():
-    # Header avec style
+    # Header with style
     st.markdown("""
     <div style='text-align: center; padding: 20px;'>
-        <h1 style='color: #1f77b4;'>🚚 FluxRadar Delivery Simulation</h1>
-        <p style='font-size: 18px; color: #666;'>Optimisez vos livraisons vers les magasins Monoprix</p>
+        <h1 style='color: #1f77b4;'>FluxRadar Delivery Simulation</h1>
+        <p style='font-size: 18px; color: #666;'>Optimize your deliveries to Monoprix stores</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Chargement des données
+    # Load data
     stores_df = load_stores()
     if stores_df.empty:
         st.stop()
     
     G = get_graph()
     
-    # Sidebar pour les paramètres
+    # Sidebar for parameters
     with st.sidebar:
-        st.header("⚙️ Paramètres de Navigation")
+        st.header("Navigation Settings")
         
-        # Paramètres pour la vitesse
-        st.subheader("� Vitesse de déplacement")
-        avg_speed = st.slider("Vitesse moyenne (km/h)", 15, 50, 25, 
-                             help="Vitesse moyenne en milieu urbain parisien")
+        # Speed parameters
+        st.subheader("Travel Speed")
+        avg_speed = st.slider("Average speed (km/h)", 15, 50, 25, 
+                             help="Average speed in Parisian urban environment")
         
-        st.header("🏪 Magasins")
+        st.header("Stores")
         if 'name' in stores_df.columns and 'address' in stores_df.columns:
             display_list = (stores_df["name"] + " - " + stores_df["address"]).tolist()
-            selected_stores = st.multiselect("Sélectionnez les Monoprix", display_list)
+            selected_stores = st.multiselect("Select Monoprix stores", display_list)
         else:
-            st.error("Colonnes 'name' ou 'address' manquantes")
+            st.error("Missing 'name' or 'address' columns")
             selected_stores = []
     
-    # Layout principal en colonnes
+    # Main layout in columns
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🗺️ Carte interactive")
+        st.subheader("Interactive Map")
         
-        # État pour stocker les coordonnées sélectionnées
+        # State to store selected coordinates
         if 'selected_coords' not in st.session_state:
             st.session_state.selected_coords = None
         
-        # Boutons pour sélectionner le point de départ
-        st.write("📍 **Sélection du point de départ:**")
+        # Buttons to select starting point
+        st.write("**Starting point selection:**")
         coords_input = st.text_input(
-            "Entrez les coordonnées (latitude, longitude)", 
+            "Enter coordinates (latitude, longitude)", 
             placeholder="48.8566, 2.3522"
         )
         
-        if st.button("📌 Définir le point de départ"):
+        if st.button("Set starting point"):
             try:
                 lat, lon = map(float, coords_input.split(','))
                 st.session_state.selected_coords = (lat, lon)
-                st.success(f"Point de départ défini: {lat:.5f}, {lon:.5f}")
+                st.success(f"Starting point set: {lat:.5f}, {lon:.5f}")
             except:
-                st.error("Format invalide. Utilisez: latitude, longitude")
+                st.error("Invalid format. Use: latitude, longitude")
         
-        # Affichage de la carte
-        # État pour stocker le trajet optimal
+        # Map display
+        # State to store optimal route
         if 'optimal_route' not in st.session_state:
             st.session_state.optimal_route = None
         
-        # Bouton pour calculer le trajet optimal
+        # Button to calculate optimal route
         if st.session_state.selected_coords and selected_stores and G:
-            if st.button("🚀 Calculer le trajet optimal", type="primary"):
-                with st.spinner("Calcul du trajet optimal avec Dijkstra..."):
+            if st.button("Calculate optimal route", type="primary"):
+                with st.spinner("Calculating optimal route with Dijkstra..."):
                     optimal_route = calculate_optimal_route(
                         G, st.session_state.selected_coords, 
                         stores_df, selected_stores, avg_speed
@@ -315,92 +315,92 @@ def main():
                     st.session_state.optimal_route = optimal_route
                     
                     if optimal_route:
-                        st.success(f"🎯 Trajet optimal calculé vers {optimal_route['optimal_store']['store_address']}")
-                        st.info(f"⏱️ Temps estimé: {optimal_route['total_time']:.1f} min | 📏 Distance: {optimal_route['total_distance']:.0f}m | 🚗 Vitesse: {avg_speed} km/h")
+                        st.success(f"Optimal route calculated to {optimal_route['optimal_store']['store_address']}")
+                        st.info(f"Estimated time: {optimal_route['total_time']:.1f} min | Distance: {optimal_route['total_distance']:.0f}m | Speed: {avg_speed} km/h")
                     else:
-                        st.error("❌ Impossible de calculer le trajet optimal")
+                        st.error("Unable to calculate optimal route")
         
-        # Affichage de la carte avec le trajet optimal
+        # Display map with optimal route
         fig = create_paris_map(stores_df, st.session_state.selected_coords, 
                               selected_stores, st.session_state.optimal_route)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        st.subheader("📊 Informations")
+        st.subheader("Information")
         
-        # Statistiques des magasins
-        st.metric("🏪 Nombre de Monoprix", len(stores_df))
-        st.metric("📍 Magasins sélectionnés", len(selected_stores))
+        # Store statistics
+        st.metric("Number of Monoprix", len(stores_df))
+        st.metric("Selected stores", len(selected_stores))
         
-        # Informations sur le trajet optimal
+        # Optimal route information
         if st.session_state.optimal_route:
             optimal = st.session_state.optimal_route
-            st.success("✅ Trajet optimal calculé")
-            st.metric("🎯 Destination", optimal['optimal_store']['store_name'])
-            st.metric("⏱️ Temps optimal", f"{optimal['total_time']:.1f} min")
-            st.metric("📏 Distance", f"{optimal['total_distance']:.0f} m")
+            st.success("Optimal route calculated")
+            st.metric("Destination", optimal['optimal_store']['store_name'])
+            st.metric("Optimal time", f"{optimal['total_time']:.1f} min")
+            st.metric("Distance", f"{optimal['total_distance']:.0f} m")
             
-            if st.button("🗑️ Effacer le trajet"):
+            if st.button("Clear route"):
                 st.session_state.optimal_route = None
                 st.rerun()
         else:
             if st.session_state.selected_coords:
-                st.success("✅ Point de départ défini")
+                st.success("Starting point defined")
             else:
-                st.info("ℹ️ Définissez un point de départ")
+                st.info("Define a starting point")
     
-    # Simulation et résultats détaillés
+    # Simulation and detailed results
     if st.session_state.optimal_route:
-        st.subheader("🎯 Simulation du Trajet Optimal")
+        st.subheader("Optimal Route Simulation")
         
         optimal = st.session_state.optimal_route
         
-        # Informations détaillées
+        # Detailed information
         col3, col4 = st.columns(2)
         
         with col3:
-            st.markdown("### 📍 Destination Optimale")
-            st.write(f"**🏪 Magasin:** {optimal['optimal_store']['store_name']}")
-            st.write(f"**📍 Adresse:** {optimal['optimal_store']['store_address']}")
-            st.write(f"**⏱️ Temps de trajet:** {optimal['total_time']:.1f} minutes")
-            st.write(f"**📏 Distance:** {optimal['total_distance']:.0f} mètres")
+            st.markdown("### Optimal Destination")
+            st.write(f"**Store:** {optimal['optimal_store']['store_name']}")
+            st.write(f"**Address:** {optimal['optimal_store']['store_address']}")
+            st.write(f"**Travel time:** {optimal['total_time']:.1f} minutes")
+            st.write(f"**Distance:** {optimal['total_distance']:.0f} meters")
         
         with col4:
-            st.markdown("### 📊 Comparaison avec les autres magasins")
+            st.markdown("### Comparison with other stores")
             if len(optimal['all_results']) > 1:
                 comparison_data = []
                 for result in optimal['all_results']:
                     is_optimal = result['store_name'] == optimal['optimal_store']['store_name']
                     comparison_data.append({
-                        'Magasin': result['store_name'],
-                        'Temps (min)': f"{result['duration']:.1f}",
+                        'Store': result['store_name'],
+                        'Time (min)': f"{result['duration']:.1f}",
                         'Distance (m)': f"{result['distance']:.0f}",
-                        'Optimal': "🎯" if is_optimal else ""
+                        'Optimal': "OPTIMAL" if is_optimal else ""
                     })
                 
                 comparison_df = pd.DataFrame(comparison_data)
                 st.dataframe(comparison_df, use_container_width=True)
             else:
-                st.info("Un seul magasin sélectionné")
+                st.info("Only one store selected")
         
-        # Graphique de comparaison
+        # Comparison chart
         if len(optimal['all_results']) > 1:
             fig_comparison = px.bar(
                 x=[r['store_name'] for r in optimal['all_results']],
                 y=[r['duration'] for r in optimal['all_results']],
-                title="⏱️ Comparaison des temps de trajet",
-                labels={'x': 'Magasins', 'y': 'Temps (minutes)'},
+                title="Travel time comparison",
+                labels={'x': 'Stores', 'y': 'Time (minutes)'},
                 color=[r['duration'] for r in optimal['all_results']],
                 color_continuous_scale='RdYlGn_r'
             )
             
-            # Marquer le magasin optimal
+            # Mark optimal store
             optimal_idx = next(i for i, r in enumerate(optimal['all_results']) 
                              if r['store_name'] == optimal['optimal_store']['store_name'])
             fig_comparison.add_annotation(
                 x=optimal_idx,
                 y=optimal['total_time'],
-                text="🎯 OPTIMAL",
+                text="OPTIMAL",
                 showarrow=True,
                 arrowhead=2,
                 arrowcolor="green",
@@ -410,19 +410,18 @@ def main():
             fig_comparison.update_layout(height=400)
             st.plotly_chart(fig_comparison, use_container_width=True)
     
-    # Instructions pour l'utilisateur
-    # Instructions pour l'utilisateur
+    # User instructions
     if not st.session_state.selected_coords and not selected_stores:
-        st.info("📋 **Instructions:**\n"
-                "1. 📍 Définissez un point de départ\n"
-                "2. 🏪 Sélectionnez un ou plusieurs magasins Monoprix\n"
-                "3. 🚀 Cliquez sur 'Calculer le trajet optimal'")
+        st.info("**Instructions:**\n"
+                "1. Define a starting point\n"
+                "2. Select one or more Monoprix stores\n"
+                "3. Click 'Calculate optimal route'")
     elif not st.session_state.selected_coords:
-        st.info("📍 Définissez un point de départ pour calculer les routes")
+        st.info("Define a starting point to calculate routes")
     elif not selected_stores:
-        st.info("🏪 Sélectionnez au moins un magasin Monoprix dans la barre latérale")
+        st.info("Select at least one Monoprix store in the sidebar")
     elif not st.session_state.optimal_route:
-        st.info("🚀 Cliquez sur 'Calculer le trajet optimal' pour voir la simulation")
+        st.info("Click 'Calculate optimal route' to view the simulation")
 
 if __name__ == "__main__":
     main()
