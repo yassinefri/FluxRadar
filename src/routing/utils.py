@@ -37,7 +37,7 @@ def nearest_node(G, coords):
     nodes_coords = np.array(nodes_coords)
     target = np.array([lat, lon])
     
-    # Distance euclidienne simple (pour de petites distances, c'est suffisant)
+    # Distance euclidienne simple pour de petites distances
     distances = np.sqrt(np.sum((nodes_coords - target) ** 2, axis=1))
     
     # Retourner l'ID du nœud le plus proche
