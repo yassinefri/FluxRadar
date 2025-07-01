@@ -10,6 +10,15 @@ import streamlit.components.v1 as components
 from src.api.load_graph import load_graph
 from src.routing.utils import nearest_node
 
+# OR-Tools for optimal TSP solving
+try:
+    from ortools.constraint_solver import pywrapcp 
+    from ortools.constraint_solver import routing_enums_pb2
+    ORTOOLS_AVAILABLE = True
+except ImportError:
+    ORTOOLS_AVAILABLE = False
+    st.warning("⚠️ OR-Tools not installed. Using basic heuristic. Install with: pip install ortools")
+
 # Page configuration
 st.set_page_config(
     page_title="FluxRadar Delivery Simulation",
@@ -70,19 +79,51 @@ def create_paris_map(stores_df, selected_coords=None, selected_stores=None, opti
             
             # Add ONLY selected Monoprix stores - Navy blue like in photo
             if not filtered_stores.empty:
-                fig.add_trace(go.Scattermap(
-                    lat=filtered_stores['latitude'],
-                    lon=filtered_stores['longitude'],
-                    mode='markers',
-                    marker=dict(
-                        size=12,
-                        color='#1f3a93',  # Navy blue like in the photo
-                        symbol='circle'
-                    ),
-                    text=filtered_stores['name'] + '<br>' + filtered_stores['address'],
-                    hovertemplate='<b>%{text}</b><extra></extra>',
-                    name='Selected Monoprix'
-                ))
+                # If we have an optimal route, show numbered markers
+                if optimal_route and 'stores_order' in optimal_route:
+                    stores_order = optimal_route['stores_order']
+                    
+                    # Create a mapping of address to visit order
+                    order_map = {address: i+1 for i, address in enumerate(stores_order)}
+                    
+                    # Add numbered markers for ordered stores
+                    for _, store in filtered_stores.iterrows():
+                        order_num = order_map.get(store['address'], 0)
+                        
+                        if order_num > 0:  # Store is in the route
+                            # Add numbered marker
+                            fig.add_trace(go.Scattermap(
+                                lat=[store['latitude']],
+                                lon=[store['longitude']],
+                                mode='markers+text',
+                                marker=dict(
+                                    size=16,
+                                    color='#1f3a93',  # Navy blue
+                                    symbol='circle'
+                                ),
+                                text=[str(order_num)],
+                                textposition='middle center',
+                                textfont=dict(color='white', size=12, family='Arial Black'),
+                                hovertext=f"Stop #{order_num}: {store['name']}<br>{store['address']}",
+                                hovertemplate='<b>%{hovertext}</b><extra></extra>',
+                                name=f'Stop #{order_num}',
+                                showlegend=False
+                            ))
+                else:
+                    # No route calculated yet - show regular markers
+                    fig.add_trace(go.Scattermap(
+                        lat=filtered_stores['latitude'],
+                        lon=filtered_stores['longitude'],
+                        mode='markers',
+                        marker=dict(
+                            size=12,
+                            color='#1f3a93',  # Navy blue like in the photo
+                            symbol='circle'
+                        ),
+                        text=filtered_stores['name'] + '<br>' + filtered_stores['address'],
+                        hovertemplate='<b>%{text}</b><extra></extra>',
+                        name='Selected Monoprix'
+                    ))
     
     # Add starting point - Green like in photo
     if selected_coords:
@@ -134,17 +175,40 @@ def create_paris_map(stores_df, selected_coords=None, selected_stores=None, opti
                 # Create frame data - copy all existing traces and add moving point
                 frame_traces = []
                 
-                # Add stores
+                # Add stores with numbered markers if available
                 if selected_stores and not filtered_stores.empty:
-                    frame_traces.append(go.Scattermap(
-                        lat=filtered_stores['latitude'],
-                        lon=filtered_stores['longitude'],
-                        mode='markers',
-                        marker=dict(size=12, color='#1f3a93', symbol='circle'),
-                        text=filtered_stores['name'] + '<br>' + filtered_stores['address'],
-                        hovertemplate='<b>%{text}</b><extra></extra>',
-                        name='Selected Monoprix'
-                    ))
+                    if optimal_route and 'stores_order' in optimal_route:
+                        stores_order = optimal_route['stores_order']
+                        order_map = {address: i+1 for i, address in enumerate(stores_order)}
+                        
+                        # Add numbered markers for each store
+                        for _, store in filtered_stores.iterrows():
+                            order_num = order_map.get(store['address'], 0)
+                            
+                            if order_num > 0:
+                                frame_traces.append(go.Scattermap(
+                                    lat=[store['latitude']],
+                                    lon=[store['longitude']],
+                                    mode='markers+text',
+                                    marker=dict(size=16, color='#1f3a93', symbol='circle'),
+                                    text=[str(order_num)],
+                                    textposition='middle center',
+                                    textfont=dict(color='white', size=12, family='Arial Black'),
+                                    hovertext=f"Stop #{order_num}: {store['name']}<br>{store['address']}",
+                                    hovertemplate='<b>%{hovertext}</b><extra></extra>',
+                                    name=f'Stop #{order_num}',
+                                    showlegend=False
+                                ))
+                    else:
+                        frame_traces.append(go.Scattermap(
+                            lat=filtered_stores['latitude'],
+                            lon=filtered_stores['longitude'],
+                            mode='markers',
+                            marker=dict(size=12, color='#1f3a93', symbol='circle'),
+                            text=filtered_stores['name'] + '<br>' + filtered_stores['address'],
+                            hovertemplate='<b>%{text}</b><extra></extra>',
+                            name='Selected Monoprix'
+                        ))
                 
                 # Add starting point
                 if selected_coords:
@@ -369,39 +433,16 @@ def calculate_optimal_route(G, start_coords, stores_df, selected_stores, avg_spe
                         distance_matrix[i][j] = float('inf')
                         time_matrix[i][j] = float('inf')
         
-        # Solve TSP using nearest neighbor heuristic (good for small number of stores)
-        def solve_tsp_nearest_neighbor(matrix, start_idx=0):
-            n = len(matrix)
-            visited = [False] * n
-            tour = [start_idx]
-            visited[start_idx] = True
-            current = start_idx
-            total_cost = 0
-            
-            # Visit all other nodes
-            for _ in range(n - 1):
-                nearest_dist = float('inf')
-                nearest_idx = -1
-                
-                for j in range(n):
-                    if not visited[j] and matrix[current][j] < nearest_dist:
-                        nearest_dist = matrix[current][j]
-                        nearest_idx = j
-                
-                if nearest_idx != -1:
-                    tour.append(nearest_idx)
-                    visited[nearest_idx] = True
-                    total_cost += matrix[current][nearest_idx]
-                    current = nearest_idx
-            
-            # RETURN TO STARTING POINT (close the loop)
-            tour.append(start_idx)
-            total_cost += matrix[current][start_idx]
-            
-            return tour, total_cost
-        
-        # Find optimal tour (minimize travel time)
-        optimal_tour, total_time = solve_tsp_nearest_neighbor(time_matrix, 0)
+        # Solve TSP using OR-Tools (optimal) or fallback to heuristic
+        if ORTOOLS_AVAILABLE:
+            st.info("🚀 Using OR-Tools for optimal TSP solution...")
+            optimal_tour, total_time = solve_tsp_ortools(time_matrix, 0)
+            if optimal_tour is None:
+                st.warning("OR-Tools failed, using heuristic fallback")
+                optimal_tour, total_time = solve_tsp_nearest_neighbor(time_matrix, 0)
+        else:
+            st.info("📊 Using nearest neighbor heuristic (install OR-Tools for optimal solution)")
+            optimal_tour, total_time = solve_tsp_nearest_neighbor(time_matrix, 0)
         
         # Calculate total distance for the optimal tour
         total_distance = sum(distance_matrix[optimal_tour[i]][optimal_tour[i+1]] 
@@ -461,6 +502,138 @@ def calculate_optimal_route(G, start_coords, stores_df, selected_stores, avg_spe
     except Exception as e:
         st.error(f"Error calculating optimal route: {str(e)}")
         return None
+
+def df_animation_multiple_path(G, lst_paths, parallel=True):
+    """Create DataFrame for animating multiple paths"""
+    df = pd.DataFrame()
+    for path in lst_paths:
+        lst_start, lst_end = [], []
+        start_x, start_y = [], []
+        end_x, end_y = [], []
+        lst_length, lst_time = [], []
+        
+        for a, b in zip(path[:-1], path[1:]):
+            lst_start.append(a)
+            lst_end.append(b)
+            try:
+                # Handle different edge formats
+                if G.has_edge(a, b):
+                    edge_data = G.edges[(a, b)]
+                    if isinstance(edge_data, dict):
+                        lst_length.append(round(edge_data.get('length', 100)))
+                        lst_time.append(round(edge_data.get('travel_time', 5)))
+                    else:
+                        lst_length.append(100)  # Default values
+                        lst_time.append(5)
+                else:
+                    lst_length.append(100)
+                    lst_time.append(5)
+            except:
+                lst_length.append(100)
+                lst_time.append(5)
+                
+            # Get node coordinates
+            start_x.append(G.nodes[a].get('x', G.nodes[a].get('lon', 0)))
+            start_y.append(G.nodes[a].get('y', G.nodes[a].get('lat', 0)))
+            end_x.append(G.nodes[b].get('x', G.nodes[b].get('lon', 0)))
+            end_y.append(G.nodes[b].get('y', G.nodes[b].get('lat', 0)))
+            
+        tmp = pd.DataFrame(list(zip(lst_start, lst_end, start_x, start_y, end_x, end_y, lst_length, lst_time)), 
+                         columns=["start", "end", "start_x", "start_y", "end_x", "end_y", "length", "travel_time"])
+        df = pd.concat([df, tmp], ignore_index=(not parallel))
+        
+    df = df.reset_index().rename(columns={"index": "id"})
+    return df
+
+def solve_tsp_ortools(distance_matrix, start_idx=0):
+    """Solve TSP using OR-Tools - returns optimal solution"""
+    if not ORTOOLS_AVAILABLE:
+        return None, float('inf')
+    
+    try:
+        # Convert distance matrix to integer (OR-Tools requirement)
+        int_matrix = [[int(distance_matrix[i][j]) for j in range(len(distance_matrix[i]))] 
+                     for i in range(len(distance_matrix))]
+        
+        # Create the routing index manager
+        manager = pywrapcp.RoutingIndexManager(len(int_matrix), 1, start_idx)
+        
+        # Create Routing Model
+        routing = pywrapcp.RoutingModel(manager)
+        
+        def distance_callback(from_index, to_index):
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            return int_matrix[from_node][to_node]
+        
+        transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+        
+        # Setting first solution heuristic
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        search_parameters.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+        search_parameters.local_search_metaheuristic = (
+            routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
+        search_parameters.time_limit.seconds = 10
+        
+        # Solve the problem
+        solution = routing.SolveWithParameters(search_parameters)
+        
+        if solution:
+            # Extract the solution
+            tour = []
+            total_cost = 0
+            index = routing.Start(0)
+            
+            while not routing.IsEnd(index):
+                node = manager.IndexToNode(index)
+                tour.append(node)
+                previous_index = index
+                index = solution.Value(routing.NextVar(index))
+                total_cost += routing.GetArcCostForVehicle(previous_index, index, 0)
+                
+            # Add return to start
+            tour.append(start_idx)
+            
+            return tour, total_cost
+        else:
+            return None, float('inf')
+            
+    except Exception as e:
+        st.warning(f"OR-Tools TSP failed: {e}. Falling back to heuristic.")
+        return None, float('inf')
+
+def solve_tsp_nearest_neighbor(matrix, start_idx=0):
+    """Fallback nearest neighbor heuristic"""
+    n = len(matrix)
+    visited = [False] * n
+    tour = [start_idx]
+    visited[start_idx] = True
+    current = start_idx
+    total_cost = 0
+    
+    # Visit all other nodes
+    for _ in range(n - 1):
+        nearest_dist = float('inf')
+        nearest_idx = -1
+        
+        for j in range(n):
+            if not visited[j] and matrix[current][j] < nearest_dist:
+                nearest_dist = matrix[current][j]
+                nearest_idx = j
+        
+        if nearest_idx != -1:
+            tour.append(nearest_idx)
+            visited[nearest_idx] = True
+            total_cost += matrix[current][nearest_idx]
+            current = nearest_idx
+    
+    # RETURN TO STARTING POINT (close the loop)
+    tour.append(start_idx)
+    total_cost += matrix[current][start_idx]
+    
+    return tour, total_cost
 
 # Address geocoding functions
 def geocode_address(address):
@@ -932,8 +1105,8 @@ def main():
         
         # Show current selected address
         if st.session_state.get('selected_address') and st.session_state.selected_coords:
-            st.success(f"Current starting point: **{st.session_state.selected_address}**")
-            if st.button("Clear starting point"):
+            st.success(f"📍 **Point de départ actuel:** {st.session_state.selected_address}")
+            if st.button("🗑️ Effacer le point de départ"):
                 # Clear all address-related session state
                 for key in ['selected_coords', 'selected_address', 'last_selected_address', 'address_input']:
                     if key in st.session_state:
@@ -947,8 +1120,8 @@ def main():
         
         # Button to calculate optimal route
         if st.session_state.selected_coords and selected_stores and G:
-            if st.button("Calculate optimal route", type="primary"):
-                with st.spinner("Calculating optimal route with Dijkstra..."):
+            if st.button("🚀 Calculer l'itinéraire optimal", type="primary"):
+                with st.spinner("🔄 Calcul de l'itinéraire optimal avec Dijkstra..."):
                     optimal_route = calculate_optimal_route(
                         G, st.session_state.selected_coords, 
                         stores_df, selected_stores, avg_speed
@@ -958,15 +1131,39 @@ def main():
                     if optimal_route:
                         num_stores = len(optimal_route['stores_order'])
                         if num_stores == 1:
-                            st.success(f"Route calculated to: {optimal_route['stores_order'][0]}")
+                            st.success(f"✅ Route calculé vers: {optimal_route['stores_order'][0]}")
                         else:
-                            st.success(f"Optimal route calculated through {num_stores} stores")
-                            with st.expander("Store visiting order"):
+                            st.success(f"✅ Itinéraire optimal calculé pour {num_stores} magasins")
+                            
+                            # Show detailed itinerary
+                            with st.expander("📋 Ordre de visite détaillé", expanded=True):
+                                st.write("**Itinéraire optimisé :**")
+                                st.write("🏁 **Point de départ** → Adresse de départ")
+                                
                                 for i, store in enumerate(optimal_route['stores_order'], 1):
-                                    st.write(f"{i}. {store}")
-                        st.info(f"Total time: {optimal_route['total_time']:.1f} min | Total distance: {optimal_route['total_distance']:.0f}m | Speed: {avg_speed} km/h")
+                                    st.write(f"{i}️⃣ **Arrêt {i}** → {store}")
+                                
+                                st.write("🔄 **Retour** → Point de départ")
+                                
+                                # Show segments if available
+                                if 'segments' in optimal_route and optimal_route['segments']:
+                                    st.write("---")
+                                    st.write("**Détail des trajets :**")
+                                    for i, segment in enumerate(optimal_route['segments'], 1):
+                                        duration_min = int(segment['duration'])
+                                        distance_m = int(segment['distance'])
+                                        st.write(f"**Segment {i}:** {segment['from']} → {segment['to']}")
+                                        st.write(f"   📏 {distance_m}m • ⏱️ {duration_min} min")
+                        
+                        # Summary metrics
+                        total_time_str = f"{optimal_route['total_time']:.1f} min"
+                        total_distance_str = f"{optimal_route['total_distance']:.0f} m"
+                        if optimal_route['total_distance'] >= 1000:
+                            total_distance_str = f"{optimal_route['total_distance']/1000:.1f} km"
+                        
+                        st.info(f"📊 **Résumé:** {total_time_str} • {total_distance_str} • {avg_speed} km/h")
                     else:
-                        st.error("Unable to calculate optimal route")
+                        st.error("❌ Impossible de calculer l'itinéraire optimal")
         
         # Display map with optimal route
         fig = create_paris_map(stores_df, st.session_state.selected_coords, 
@@ -979,47 +1176,72 @@ def main():
                 add_auto_animation_script()
     
     with col2:
-        st.subheader("Information")
+        st.subheader("📊 Tableau de bord")
         
         # Store statistics
-        st.metric("Number of Monoprix", len(stores_df))
-        st.metric("Selected stores", len(selected_stores))
+        st.metric("🏪 Magasins Monoprix", len(stores_df))
+        st.metric("✅ Magasins sélectionnés", len(selected_stores))
         
         # Optimal route information
         if st.session_state.optimal_route:
             optimal = st.session_state.optimal_route
-            st.success("Optimal route calculated")
+            st.success("🎯 Itinéraire optimisé")
             
             num_stores = len(optimal['stores_order'])
             if num_stores == 1:
-                st.metric("Destination", optimal['stores_order'][0])
+                st.metric("📍 Destination", "1 magasin")
             else:
-                st.metric("Stores to visit", num_stores)
+                st.metric("🛍️ Arrêts prévus", f"{num_stores} magasins")
             
-            st.metric("Total time", f"{optimal['total_time']:.1f} min")
-            st.metric("Total distance", f"{optimal['total_distance']:.0f} m")
+            # Format time display
+            total_minutes = optimal['total_time']
+            if total_minutes >= 60:
+                hours = int(total_minutes // 60)
+                minutes = int(total_minutes % 60)
+                time_display = f"{hours}h {minutes}min"
+            else:
+                time_display = f"{total_minutes:.0f} min"
             
-            if st.button("Clear route"):
+            st.metric("⏱️ Temps total", time_display)
+            
+            # Format distance display
+            total_distance = optimal['total_distance']
+            if total_distance >= 1000:
+                distance_display = f"{total_distance/1000:.1f} km"
+            else:
+                distance_display = f"{total_distance:.0f} m"
+            
+            st.metric("📏 Distance totale", distance_display)
+            
+            # Additional metrics
+            if num_stores > 1:
+                avg_time_per_stop = total_minutes / num_stores
+                st.metric("⚡ Temps moyen/arrêt", f"{avg_time_per_stop:.1f} min")
+            
+            if st.button("🗑️ Effacer l'itinéraire", type="secondary"):
                 st.session_state.optimal_route = None
                 st.rerun()
         else:
             if st.session_state.selected_coords:
-                st.success("Starting point defined")
+                st.success("✅ Point de départ défini")
+                st.info("👆 Sélectionnez des magasins et calculez l'itinéraire")
             else:
-                st.info("Define a starting point")
+                st.info("📍 Définir un point de départ")
+                st.warning("⚠️ Adresse de départ requise")
     
-    # User instructions
+    # User instructions - French version with emojis
     if not st.session_state.selected_coords and not selected_stores:
-        st.info("**Instructions:**\n"
-                "1. Define a starting point\n"
-                "2. Select one or more Monoprix stores\n"
-                "3. Click 'Calculate optimal route'")
+        st.info("📋 **Guide d'utilisation :**\n"
+                "1. 📍 Saisissez votre adresse de départ\n"
+                "2. 🏪 Sélectionnez un ou plusieurs magasins Monoprix\n"
+                "3. 🚀 Cliquez sur 'Calculer l'itinéraire optimal'\n"
+                "4. 🗺️ Visualisez votre parcours avec animation")
     elif not st.session_state.selected_coords:
-        st.info("Define a starting point to calculate routes")
+        st.warning("📍 **Étape suivante :** Définissez votre point de départ")
     elif not selected_stores:
-        st.info("Select at least one Monoprix store in the sidebar")
+        st.warning("🏪 **Étape suivante :** Sélectionnez au moins un magasin Monoprix dans la barre latérale")
     elif not st.session_state.optimal_route:
-        st.info("Click 'Calculate optimal route' to view the simulation")
+        st.info("🚀 **Prêt !** Cliquez sur 'Calculer l'itinéraire optimal' pour voir la simulation")
 
 if __name__ == "__main__":
     main()
